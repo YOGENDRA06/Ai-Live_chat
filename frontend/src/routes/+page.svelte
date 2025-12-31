@@ -20,18 +20,14 @@
   let loading = false;
   let messagesEnd: HTMLDivElement;
 
-  /* ------------------ Utils ------------------ */
-
   async function scrollToBottom() {
     await tick();
     messagesEnd?.scrollIntoView({ behavior: "smooth" });
   }
 
-  /* ------------------ Data loaders ------------------ */
-
   async function loadConversations() {
     const res = await fetch(`${API_BASE}/chat/conversations`);
-    conversations = await res.ok ? await res.json() : [];
+    conversations = res.ok ? await res.json() : [];
   }
 
   async function loadHistory(conversationId: string) {
@@ -39,8 +35,6 @@
     messages = res.ok ? await res.json() : [];
     scrollToBottom();
   }
-
-  /* ------------------ Chat selection ------------------ */
 
   async function selectConversation(convo: Conversation) {
     activeConversationId = convo.id;
@@ -53,8 +47,6 @@
     messages = [];
     localStorage.removeItem("activeConversationId");
   }
-
-  /* ------------------ Send message ------------------ */
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -78,7 +70,6 @@
 
       const data = await res.json();
 
-      // First message of a new chat creates a conversation
       if (!activeConversationId) {
         activeConversationId = data.sessionId;
         localStorage.setItem("activeConversationId", data.sessionId);
@@ -98,18 +89,18 @@
     }
   }
 
-  /* ------------------ Lifecycle ------------------ */
-
   onMount(async () => {
     await loadConversations();
 
-    // Restore active chat only on refresh
     const storedId = localStorage.getItem("activeConversationId");
     if (storedId) {
       activeConversationId = storedId;
       await loadHistory(storedId);
     }
   });
+
+  $: activeConversation =
+    conversations.find((c) => c.id === activeConversationId) ?? null;
 </script>
 
 <style>
@@ -124,6 +115,7 @@
     border-right: 1px solid #ddd;
     padding: 12px;
     background: #f8fafc;
+    overflow-y: auto;
   }
 
   .new-chat {
@@ -153,6 +145,13 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+  }
+
+  .chat-header {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    font-weight: bold;
+    background: #fafafa;
   }
 
   .messages {
@@ -194,6 +193,11 @@
     padding: 10px 14px;
   }
 
+  button.send:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .empty {
     color: #64748b;
     font-style: italic;
@@ -201,7 +205,6 @@
 </style>
 
 <div class="layout">
-  <!-- Sidebar -->
   <div class="sidebar">
     <button class="new-chat" on:click={startNewChat}>
       + New Chat
@@ -217,12 +220,15 @@
     {/each}
   </div>
 
-  <!-- Chat panel -->
   <div class="chat">
+    <div class="chat-header">
+      {activeConversation?.title ?? "New Conversation"}
+    </div>
+
     <div class="messages">
       {#if messages.length === 0}
         <div class="empty">
-          Start a new chat by typing a message below.
+          Start a new conversation by typing a message below.
         </div>
       {/if}
 
@@ -246,7 +252,11 @@
         on:keydown={(e) => e.key === "Enter" && sendMessage()}
         disabled={loading}
       />
-      <button class="send" on:click={sendMessage} disabled={loading}>
+      <button
+        class="send"
+        on:click={sendMessage}
+        disabled={loading || !input.trim()}
+      >
         Send
       </button>
     </div>
