@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { handleUserMessage } from "../services/chat.service";
 import { getMessagesByConversation } from "../repositories/message.repo";
+import { listConversations } from "../repositories/conversation.repo";
 
 export async function postChatMessage(req: Request, res: Response) {
   try {
@@ -23,11 +24,6 @@ export async function postChatMessage(req: Request, res: Response) {
 export async function getChatHistory(req: Request, res: Response) {
   try {
     const { sessionId } = req.params;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "sessionId is required" });
-    }
-
     const messages = await getMessagesByConversation(sessionId);
 
     res.json(
@@ -36,10 +32,16 @@ export async function getChatHistory(req: Request, res: Response) {
         text: m.text,
       }))
     );
-  } catch (error) {
-    console.error("History fetch error:", error);
-    res.status(500).json({
-      error: "Could not fetch chat history",
-    });
+  } catch {
+    res.status(500).json({ error: "Could not fetch chat history" });
+  }
+}
+
+export async function getConversations(req: Request, res: Response) {
+  try {
+    const conversations = await listConversations();
+    res.json(conversations);
+  } catch {
+    res.status(500).json({ error: "Could not fetch conversations" });
   }
 }

@@ -6,41 +6,55 @@
     text: string;
   };
 
+  type Conversation = {
+    id: string;
+    title: string | null;
+  };
+
+  const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+  let conversations: Conversation[] = [];
+  let activeConversationId: string | null = null;
   let messages: Message[] = [];
   let input = "";
   let loading = false;
-  let sessionId: string | null = null;
   let messagesEnd: HTMLDivElement;
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL;
+  /* ------------------ Utils ------------------ */
 
   async function scrollToBottom() {
     await tick();
     messagesEnd?.scrollIntoView({ behavior: "smooth" });
   }
 
-  async function loadHistory() {
-    if (!sessionId) return;
+  /* ------------------ Data loaders ------------------ */
 
-    try {
-      const res = await fetch(
-        `${API_BASE}/chat/history/${sessionId}`
-      );
-
-      if (!res.ok) return;
-
-      const data: Message[] = await res.json();
-      messages = data;
-      scrollToBottom();
-    } catch (err) {
-      console.error("Failed to load chat history", err);
-    }
+  async function loadConversations() {
+    const res = await fetch(`${API_BASE}/chat/conversations`);
+    conversations = await res.ok ? await res.json() : [];
   }
 
-  onMount(async () => {
-    sessionId = localStorage.getItem("sessionId");
-    await loadHistory();
-  });
+  async function loadHistory(conversationId: string) {
+    const res = await fetch(`${API_BASE}/chat/history/${conversationId}`);
+    messages = res.ok ? await res.json() : [];
+    scrollToBottom();
+  }
+
+  /* ------------------ Chat selection ------------------ */
+
+  async function selectConversation(convo: Conversation) {
+    activeConversationId = convo.id;
+    localStorage.setItem("activeConversationId", convo.id);
+    await loadHistory(convo.id);
+  }
+
+  function startNewChat() {
+    activeConversationId = null;
+    messages = [];
+    localStorage.removeItem("activeConversationId");
+  }
+
+  /* ------------------ Send message ------------------ */
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -55,154 +69,186 @@
     try {
       const res = await fetch(`${API_BASE}/chat/message`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMessage,
-          sessionId,
+          sessionId: activeConversationId,
         }),
       });
 
-      if (!res.ok) {
-        throw new Error("Backend error");
-      }
-
       const data = await res.json();
 
-      sessionId = data.sessionId;
-      localStorage.setItem("sessionId", sessionId);
+      // First message of a new chat creates a conversation
+      if (!activeConversationId) {
+        activeConversationId = data.sessionId;
+        localStorage.setItem("activeConversationId", data.sessionId);
+      }
+
+      await loadConversations();
 
       messages = [...messages, { sender: "ai", text: data.reply }];
-    } catch (err) {
+    } catch {
       messages = [
         ...messages,
-        {
-          sender: "ai",
-          text: "Sorry, something went wrong. Please try again.",
-        },
+        { sender: "ai", text: "Sorry, something went wrong." },
       ];
     } finally {
       loading = false;
       scrollToBottom();
     }
   }
+
+  /* ------------------ Lifecycle ------------------ */
+
+  onMount(async () => {
+    await loadConversations();
+
+    // Restore active chat only on refresh
+    const storedId = localStorage.getItem("activeConversationId");
+    if (storedId) {
+      activeConversationId = storedId;
+      await loadHistory(storedId);
+    }
+  });
 </script>
 
 <style>
-  .chat-container {
-    max-width: 600px;
-    margin: 40px auto;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+  .layout {
     display: flex;
-    flex-direction: column;
-    height: 80vh;
+    height: 100vh;
     font-family: system-ui, sans-serif;
   }
 
-  .header {
+  .sidebar {
+    width: 260px;
+    border-right: 1px solid #ddd;
     padding: 12px;
-    border-bottom: 1px solid #ddd;
-    font-weight: bold;
-    text-align: center;
     background: #f8fafc;
+  }
+
+  .new-chat {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 12px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .chat-item {
+    padding: 8px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .chat-item.active {
+    background: #e0e7ff;
+    font-weight: bold;
+  }
+
+  .chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
   }
 
   .messages {
     flex: 1;
     padding: 16px;
     overflow-y: auto;
-    background: #ffffff;
   }
 
   .message {
-    margin-bottom: 12px;
-    max-width: 80%;
+    max-width: 75%;
+    margin-bottom: 10px;
     padding: 8px 12px;
     border-radius: 12px;
-    line-height: 1.4;
-    font-size: 14px;
   }
 
   .user {
-    align-self: flex-end;
     background: #2563eb;
     color: white;
     margin-left: auto;
-    border-bottom-right-radius: 0;
   }
 
   .ai {
-    align-self: flex-start;
     background: #f1f5f9;
-    border-bottom-left-radius: 0;
   }
 
   .input-box {
     display: flex;
-    border-top: 1px solid #ddd;
     padding: 8px;
-    background: #fafafa;
+    border-top: 1px solid #ddd;
   }
 
   input {
     flex: 1;
     padding: 10px;
-    font-size: 14px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
   }
 
-  button {
+  button.send {
     margin-left: 8px;
-    padding: 10px 16px;
-    font-size: 14px;
-    border: none;
-    background: #2563eb;
-    color: white;
-    border-radius: 4px;
-    cursor: pointer;
+    padding: 10px 14px;
   }
 
-  button:disabled {
-    background: #94a3b8;
-    cursor: not-allowed;
-  }
-
-  .typing {
-    font-style: italic;
+  .empty {
     color: #64748b;
-    font-size: 13px;
+    font-style: italic;
   }
 </style>
 
-<div class="chat-container">
-  <div class="header">AI Support Chat</div>
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <button class="new-chat" on:click={startNewChat}>
+      + New Chat
+    </button>
 
-  <div class="messages">
-    {#each messages as msg}
-      <div class="message {msg.sender}">
-        {msg.text}
+    {#each conversations as convo}
+      <div
+        class="chat-item {convo.id === activeConversationId ? 'active' : ''}"
+        on:click={() => selectConversation(convo)}
+      >
+        {convo.title ?? "Untitled chat"}
       </div>
     {/each}
-
-    {#if loading}
-      <div class="message ai typing">Agent is typing…</div>
-    {/if}
-
-    <div bind:this={messagesEnd}></div>
   </div>
 
-  <div class="input-box">
-    <input
-      placeholder="Type your message..."
-      bind:value={input}
-      on:keydown={(e) => e.key === "Enter" && sendMessage()}
-      disabled={loading}
-    />
-    <button on:click={sendMessage} disabled={loading}>
-      Send
-    </button>
+  <!-- Chat panel -->
+  <div class="chat">
+    <div class="messages">
+      {#if messages.length === 0}
+        <div class="empty">
+          Start a new chat by typing a message below.
+        </div>
+      {/if}
+
+      {#each messages as msg}
+        <div class="message {msg.sender}">
+          {msg.text}
+        </div>
+      {/each}
+
+      {#if loading}
+        <div class="message ai">Agent is typing…</div>
+      {/if}
+
+      <div bind:this={messagesEnd}></div>
+    </div>
+
+    <div class="input-box">
+      <input
+        placeholder="Type your message..."
+        bind:value={input}
+        on:keydown={(e) => e.key === "Enter" && sendMessage()}
+        disabled={loading}
+      />
+      <button class="send" on:click={sendMessage} disabled={loading}>
+        Send
+      </button>
+    </div>
   </div>
 </div>
